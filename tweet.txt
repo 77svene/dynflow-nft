@@ -1,0 +1,7 @@
+Just shipped DynFlow: Dynamic Liquidity NFTs for ETHGlobal HackMoney 2026 | Uniswap Track!
+
+Converts static NFTs into active liquidity providers that auto-compound yield and evolve metadata based on performance, eliminating the need for separate LP tokens.
+
+https://github.com/77svene/dynflow-nft
+
+#hackathon #AI #Web3 #DeFi @lablabai

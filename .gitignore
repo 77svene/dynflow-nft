@@ -1,7 +1,5 @@
-node_modules/
-.env
-*.log
-dist/
-build/
-cache/
 artifacts/
+cache/
+crytic-export/
+node_modules/
+typechain/
