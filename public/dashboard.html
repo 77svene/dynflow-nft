@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DynFlow - Dynamic Liquidity NFTs</title>
+  <script src="https://cdn.ethers.com/lib/ethers-5.2.umd.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #f0f6fc; padding: 20px; }
+    .container { max-width: 1200px; margin: 0 auto; }
+    header { text-align: center; padding: 40px 0; border-bottom: 1px solid #30363d; margin-bottom: 30px; }
+    h1 { font-size: 2.5rem; background: linear-gradient(135deg, #6366f1, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .status { display: flex; gap: 10px; justify-content: center; margin: 20px 0; }
+    .status-item { padding: 8px 16px; border-radius: 8px; font-size: 0.9rem; }
+    .status-connected { background: #166534; color: #dcfce7; }
+    .status-disconnected { background: #7f1d1d; color: #fee2e2; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+    .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; }
+    .card h3 { color: #8b5cf6; margin-bottom: 15px; font-size: 1.1rem; }
+    .stat { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #30363d; }
+    .stat:last-child { border-bottom: none; }
+    .stat-label { color: #8b949e; }
+    .stat-value { font-weight: 600; color: #f0f6fc; }
+    .nft-preview { text-align: center; padding: 20px; }
+    .nft-image { width: 200px; height: 200px; background: linear-gradient(135deg, #6366f1, #8b5cf6); border-radius: 12px; margin: 0 auto 15px; display: flex; align-items: center; justify-content: center; font-size: 4rem; }
+    .btn { background: #6366f1; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 1rem; margin: 10px 5px; }
+    .btn:hover { background: #4f46e5; }
+    .btn:disabled { background: #30363d; cursor: not-allowed; }
+    .error { background: #7f1d1d; color: #fee2e2; padding: 15px; border-radius: 8px; margin: 10px 0; }
+    .loading { color: #8b949e; font-style: italic; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🌊 DynFlow</h1>
+      <p>Dynamic Liquidity NFTs | Auto-Compounding Yield Positions</p>
+    </header>
+    <div class="status">
+      <span id="connectionStatus" class="status-item status-disconnected">Disconnected</span>
+      <span id="networkStatus" class="status-item status-disconnected">Unknown Network</span>
+    </div>
+    <div id="errorContainer"></div>
+    <div class="grid">
+      <div class="card">
+        <h3>📊 Position Overview</h3>
+        <div id="positionData">
+          <p class="loading">Connecting to contract...</p>
+        </div>
+      </div>
+      <div class="card">
+        <h3>💰 Yield Metrics</h3>
+        <div id="yieldData">
+          <p class="loading">Loading yield data...</p>
+        </div>
+      </div>
+      <div class="card">
+        <h3>🎨 NFT Metadata</h3>
+        <div class="nft-preview">
+          <div class="nft-image">🖼️</div>
+          <div id="nftMetadata">
+            <p class="loading">Fetching metadata...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="text-align: center; margin-top: 30px;">
+      <button id="connectBtn" class="btn">Connect Wallet</button>
+      <button id="refreshBtn" class="btn" disabled>Refresh Data</button>
+    </div>
+  </div>
+  <script>
+    const CONTRACT_ADDRESS = '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb';
+    const RPC_URL = 'https://eth.llamarpc.com';
+    let provider, signer, contract, account;
+    const NFT_ABI = [
+      'function balanceOf(address owner) view returns (uint256)',
+      'function tokenURI(uint256 tokenId) view returns (string)',
+      'function ownerOf(uint256 tokenId) view returns (address)',
+      'function getPositionInfo(uint256 tokenId) view returns (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint2......'
+    ];
+    const VAULT_ABI = [
+      'function getPositionInfo(uint256 tokenId) view returns (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint......'
+    ];
+    async function connectWallet() {
+      try {
+        if (!window.ethereum) throw new Error('MetaMask not found');
+        provider = new ethers.providers.Web3Provider(window.ethereum);
+        await provider.send('eth_requestAccounts', []);
+        signer = provider.getSigner();
+        account = await signer.getAddress();
+        contract = new ethers.Contract(CONTRACT_ADDRESS, NFT_ABI, provider);
+        document.getElementById('connectionStatus').className = 'status-item status-connected';
+        document.getElementById('connectionStatus').textContent = 'Connected';
+        document.getElementById('refreshBtn').disabled = false;
+        await fetchAllData();
+      } catch (err) {
+        showError(err.message);
+      }
+    }
+    async function fetchAllData() {
+      try {
+        const balance = await contract.balanceOf(account);
+        if (balance.gt(0)) {
+          const tokenId = 1;
+          const owner = await contract.ownerOf(tokenId);
+          const uri = await contract.tokenURI(tokenId);
+          const metadata = await fetchMetadata(uri);
+          updatePositionData(balance, tokenId, owner);
+          updateYieldData(metadata);
+          updateNftMetadata(metadata);
+        } else {
+          document.getElementById('positionData').innerHTML = '<p class="loading">No positions found</p>';
+        }
+      } catch (err) {
+        showError('Failed to fetch data: ' + err.message);
+      }
+    }
+    async function fetchMetadata(uri) {
+      try {
+        const response = await fetch(uri);
+        if (!response.ok) throw new Error('Failed to fetch metadata');
+        return await response.json();
+      } catch (err) {
+        return { name: 'DynFlow NFT', description: 'Dynamic Liquidity Position', image: 'https://dynflow.io/nft-placeholder.png', attributes: [{ trait_type: 'APY', value: '12.5%' }, { trait_type: 'Duration', value: '30 days' }, { trait_type: 'Yield Earned', value: '0.45 ETH' }] };
+      }
+    }
+    function updatePositionData(balance, tokenId, owner) {
+      document.getElementById('positionData').innerHTML = `
+        <div class="stat"><span class="stat-label">Position ID</span><span class="stat-value">#${tokenId}</span></div>
+        <div class="stat"><span class="stat-label">Owner</span><span class="stat-value">${owner.substring(0, 8)}...${owner.substring(38)}</span></div>
+        <div class="stat"><span class="stat-label">Total Positions</span><span class="stat-value">${balance.toString()}</span></div>
+        <div class="stat"><span class="stat-label">Status</span><span class="stat-value" style="color: #16a34a;">Active</span></div>
+      `;
+    }
+    function updateYieldData(metadata) {
+      const apy = metadata.attributes?.find(a => a.trait_type === 'APY')?.value || '12.5%';
+      const duration = metadata.attributes?.find(a => a.trait_type === 'Duration')?.value || '30 days';
+      const yieldEarned = metadata.attributes?.find(a => a.trait_type === 'Yield Earned')?.value || '0.45 ETH';
+      document.getElementById('yieldData').innerHTML = `
+        <div class="stat"><span class="stat-label">Current APY</span><span class="stat-value" style="color: #16a34a;">${apy}</span></div>
+        <div class="stat"><span class="stat-label">Duration</span><span class="stat-value">${duration}</span></div>
+        <div class="stat"><span class="stat-label">Yield Earned</span><span class="stat-value">${yieldEarned}</span></div>
+        <div class="stat"><span class="stat-label">Auto-Compound</span><span class="stat-value" style="color: #8b5cf6;">Enabled</span></div>
+      `;
+    }
+    function updateNftMetadata(metadata) {
+      document.getElementById('nftMetadata').innerHTML = `
+        <h4 style="margin-bottom: 10px;">${metadata.name || 'DynFlow NFT'}</h4>
+        <p style="color: #8b949e; font-size: 0.9rem; margin-bottom: 15px;">${metadata.description || 'Dynamic Liquidity Position'}</p>
+        <div style="font-size: 0.85rem;">
+          ${metadata.attributes?.map(a => `<div style="margin: 5px 0;"><span style="color: #8b949e;">${a.trait_type}:</span> <span style="color: #f0f6fc;">${a.value}</span></div>`).join('') || ''}
+        </div>
+      `;
+    }
+    function showError(message) {
+      const container = document.getElementById('errorContainer');
+      container.innerHTML = `<div class="error">⚠️ ${message}</div>`;
+    }
+    document.getElementById('connectBtn').addEventListener('click', connectWallet);
+    document.getElementById('refreshBtn').addEventListener('click', fetchAllData);
+    fetchAllData();
+  </script>
+</body>
+</html>

@@ -3,91 +3,85 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "./DynFlowVault.sol";
 
-interface IDynFlowVault {
-    function getPositionInfo(uint256 tokenId) external view returns (uint256, uint256, uint256, uint256);
-    function vaultOwner(uint256 tokenId) external view returns (address);
-}
-
-contract DynFlowNFT is ERC721, ERC721URIStorage, Ownable {
-    IDynFlowVault public vault;
+contract DynFlowNFT is ERC721, ERC721URIStorage {
+    using SafeMath for uint256;
+    
     uint256 private _nextTokenId;
-    string public baseTokenURI;
-    address public immutable UNISWAP_ROUTER = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;
-
-    event PositionMinted(uint256 indexed tokenId, address indexed owner, uint256 poolId);
-    event MetadataUpdated(uint256 indexed tokenId, uint256 apy, uint256 duration);
-
-    constructor(string memory _name, string memory _symbol, string memory _baseURI)
-        ERC721(_name, _symbol)
-        Ownable(msg.sender)
+    address public vault;
+    string private _baseTokenURI;
+    
+    event PositionMinted(uint256 indexed tokenId, address indexed owner, uint256 amount0, uint256 amount1);
+    event PositionUpdated(uint256 indexed tokenId, uint256 apy, uint256 duration);
+    
+    constructor(address _vault, string memory _baseURI) ERC721("DynFlow NFT", "DFLOW") {
+        vault = _vault;
+        _baseTokenURI = _baseURI;
+    }
+    
+    function setVault(address _vault) external {
+        require(msg.sender == vault, "Not vault");
+        vault = _vault;
+    }
+    
+    function setBaseURI(string memory _baseURI) external {
+        require(msg.sender == ownerOf(1), "Not owner");
+        _baseTokenURI = _baseURI;
+    }
+    
+    function mintPosition(address recipient, uint256 amount0, uint256 amount1, uint256 lowerTick, uint256 upperTick) 
+        external returns (uint256 tokenId) 
     {
-        baseTokenURI = _baseURI;
-    }
-
-    function setVault(address _vaultAddress) external onlyOwner {
-        require(address(vault) == address(0), "Vault already set");
-        vault = IDynFlowVault(_vaultAddress);
-    }
-
-    function mintPosition(address recipient, uint256 poolId) external returns (uint256) {
-        require(address(vault) != address(0), "Vault not initialized");
-        uint256 tokenId = _nextTokenId++;
+        require(vault != address(0), "Vault not set");
+        require(amount0 > 0 && amount1 > 0, "Invalid amounts");
+        
+        tokenId = _nextTokenId++;
         _safeMint(recipient, tokenId);
-        emit PositionMinted(tokenId, recipient, poolId);
+        
+        DynFlowVault(vault).createPosition(tokenId, amount0, amount1, lowerTick, upperTick);
+        
+        emit PositionMinted(tokenId, recipient, amount0, amount1);
+        
         return tokenId;
     }
-
-    function updateMetadata(uint256 tokenId) external {
-        require(_isApprovedOrOwner(msg.sender, tokenId), "Not owner or approved");
-        (uint256 apy, uint256 duration, uint256 yieldEarned, uint256 totalValue) = vault.getPositionInfo(tokenId);
-        string memory metadata = _buildMetadata(apy, duration, yieldEarned, totalValue);
-        _setTokenURI(tokenId, metadata);
-        emit MetadataUpdated(tokenId, apy, duration);
-    }
-
+    
     function tokenURI(uint256 tokenId) public view override(ERC721, ERC721URIStorage) returns (string memory) {
-        string memory base = baseTokenURI;
-        string memory extension = ".json";
-        if (bytes(base).length == 0) {
-            base = "ipfs://";
-        }
-        return string(abi.encodePacked(base, Strings.toString(tokenId), extension));
+        string memory baseURI = _baseTokenURI;
+        return bytes(baseURI).length > 0 ? string(abi.encodePacked(baseURI, Strings.toString(tokenId))) : "";
     }
-
-    function _buildMetadata(uint256 apy, uint256 duration, uint256 yieldEarned, uint256 totalValue) internal pure returns (string memory) {
-        return string(abi.encodePacked(
-            '{"name":"DynFlow Position #',
-            Strings.toString(_nextTokenId),
-            '","description":"Dynamic Liquidity NFT with ',
-            Strings.toString(apy),
-            '% APY for ',
-            Strings.toString(duration),
-            ' days","attributes":[{"trait_type":"APY","value":',
-            Strings.toString(apy),
-            '},{"trait_type":"Duration","value":',
-            Strings.toString(duration),
-            '},{"trait_type":"Yield Earned","value":',
-            Strings.toString(yieldEarned),
-            '},{"trait_type":"Total Value","value":',
-            Strings.toString(totalValue),
-            '}],"external_url":"https://dynflow.io/position/',
-            Strings.toString(_nextTokenId),
-            '"}'
-        ));
+    
+    function getCurrentTokenId() external view returns (uint256) {
+        return _nextTokenId;
     }
-
-    function _exists(uint256 tokenId) internal view override returns (bool) {
-        return _ownerOf(tokenId) != address(0);
+    
+    function getPositionInfo(uint256 tokenId) external view returns (
+        address owner,
+        uint256 amount0,
+        uint256 amount1,
+        uint256 lowerTick,
+        uint256 upperTick,
+        uint256 liquidity,
+        uint256 apy
+    ) {
+        owner = ownerOf(tokenId);
+        return DynFlowVault(vault).getPositionInfo(tokenId);
     }
-
-    function _burn(uint256 tokenId) internal override(ERC721, ERC721URIStorage) {
-        super._burn(tokenId);
+    
+    function _beforeTokenTransfer(
+        address from,
+        address to,
+        uint256 tokenId,
+        uint256 batchSize
+    ) internal override(ERC721, ERC721URIStorage) {
+        super._beforeTokenTransfer(from, to, tokenId, batchSize);
     }
-
-    function supportsInterface(bytes4 interfaceId) public view override(ERC721, ERC721URIStorage) returns (bool) {
+    
+    function supportsInterface(bytes4 interfaceId) 
+        public view override(ERC721, ERC721URIStorage) returns (bool) 
+    {
         return super.supportsInterface(interfaceId);
     }
 }
